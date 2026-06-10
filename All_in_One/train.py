@@ -100,38 +100,38 @@ class StarIRModel(pl.LightningModule):
         self.denoise_tests = []
         self.derain_tests = []
         self.dehaze_tests = []
-        
-        denoise_splits = ["bsd68/"]
-        denoise_base_path = self.opt.denoise_path
-        for i in denoise_splits:
-            self.opt.denoise_path = os.path.join(denoise_base_path, i)
-            denoise_testset = DenoiseTestDataset(self.opt)
-            self.denoise_tests.append(denoise_testset)
-            
-        # derain
-        derain_splits = ["Rain100L/"]
-        derain_base_path = self.opt.derain_path
-        for name in derain_splits:
-            self.opt.derain_path = os.path.join(derain_base_path, name)
-            self.derain_set = DerainDehazeDataset(self.opt,addnoise=False, sigma=15)
-        
 
-        self.opt.dehaze_path = self.opt.dehaze_path
-        self.dehaze_set = DerainDehazeDataset(self.opt,addnoise=False,sigma=15)
+        if any(t in self.opt.de_type for t in ['denoise_15', 'denoise_25', 'denoise_50']):
+            denoise_splits = ["bsd68/"]
+            denoise_base_path = self.opt.denoise_path
+            for i in denoise_splits:
+                self.opt.denoise_path = os.path.join(denoise_base_path, i)
+                denoise_testset = DenoiseTestDataset(self.opt)
+                self.denoise_tests.append(denoise_testset)
 
-        deblur_splits = ["gopro/"]
-        deblur_base_path = self.opt.gopro_path
-        for name in deblur_splits:
+        if 'derain' in self.opt.de_type:
+            derain_splits = ["Rain100L/"]
+            derain_base_path = self.opt.derain_path
+            for name in derain_splits:
+                self.opt.derain_path = os.path.join(derain_base_path, name)
+                self.derain_set = DerainDehazeDataset(self.opt, addnoise=False, sigma=15)
 
-            self.opt.gopro_path = os.path.join(deblur_base_path,name)
-            self.deblur_set = DerainDehazeDataset(self.opt,addnoise=False,sigma=15)
+        if 'dehaze' in self.opt.de_type:
+            self.dehaze_set = DerainDehazeDataset(self.opt, addnoise=False, sigma=15)
 
-        enhance_splits = ["lol/"]
-        enhance_base_path = self.opt.enhance_path
-        for name in enhance_splits:
+        if 'deblur' in self.opt.de_type:
+            deblur_splits = ["gopro/"]
+            deblur_base_path = self.opt.gopro_path
+            for name in deblur_splits:
+                self.opt.gopro_path = os.path.join(deblur_base_path, name)
+                self.deblur_set = DerainDehazeDataset(self.opt, addnoise=False, sigma=15)
 
-            self.opt.enhance_path = os.path.join(enhance_base_path,name)
-            self.enhance_set = DerainDehazeDataset(self.opt,addnoise=False,sigma=15)
+        if 'enhance' in self.opt.de_type:
+            enhance_splits = ["lol/"]
+            enhance_base_path = self.opt.enhance_path
+            for name in enhance_splits:
+                self.opt.enhance_path = os.path.join(enhance_base_path, name)
+                self.enhance_set = DerainDehazeDataset(self.opt, addnoise=False, sigma=15)
 
 
 
