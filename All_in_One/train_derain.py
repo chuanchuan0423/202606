@@ -60,9 +60,9 @@ class StarIRModel(pl.LightningModule):
         self.log("train_loss", loss)
         return loss
 
-    def lr_scheduler_step(self,scheduler, *args, **kwargs):
-        scheduler.step(self.current_epoch)
-        lr = scheduler.get_lr()
+    def lr_scheduler_step(self, scheduler, *args, **kwargs):
+        scheduler.step()
+        scheduler.get_last_lr()
     
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.parameters(), lr=2e-4)
@@ -186,6 +186,8 @@ def main():
 
     logger = CSVLogger(save_dir="StarIR-Derain/")
 
+    torch.set_float32_matmul_precision('high')
+
     trainset = StarIRTrainDataset(opt)
     checkpoint_callback = ModelCheckpoint(
         dirpath=opt.ckpt_dir,
@@ -198,7 +200,8 @@ def main():
         monitor=opt.monitor_metric,
         mode="max",
         save_top_k=1,
-        filename="best"
+        filename="best",
+        every_n_epochs=opt.eval_interval
     )
     trainloader = DataLoader(trainset, batch_size=opt.batch_size, pin_memory=True, shuffle=True,
                              drop_last=True, num_workers=opt.num_workers)
