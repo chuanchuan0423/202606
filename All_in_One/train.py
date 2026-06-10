@@ -17,7 +17,7 @@ from utils.schedulers import LinearWarmupCosineAnnealingLR
 import numpy as np
 # import wandb
 import lightning.pytorch as pl
-from lightning.pytorch.loggers import WandbLogger,TensorBoardLogger
+from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 import random
 
@@ -219,6 +219,9 @@ def main():
     parser.add_argument("--wblogger",type=str,default="StarIR-AIO",help = "Determine to log to wandb or not and the project name")
     parser.add_argument("--ckpt_dir",type=str,default="StarIR-AIO",help = "Name of the Directory where the checkpoint is to be saved")
     parser.add_argument("--num_gpus",type=int,default= 2, help = "Number of GPUs to use for training")
+    parser.add_argument("--save_every_n_epochs", type=int, default=5, help="Save checkpoint every N epochs")
+    parser.add_argument("--eval_interval", type=int, default=5, help="Evaluate every N epochs")
+    parser.add_argument("--monitor_metric", type=str, default="psnr derain", help="Metric to monitor for best checkpoint")
 
     opt = parser.parse_args()
 
@@ -228,15 +231,27 @@ def main():
     command = 'cp '+'net/model.py ' + path
     os.system(command)
 
-    logger = TensorBoardLogger(save_dir = "StarIR-AIO/")
+    logger = CSVLogger(save_dir="StarIR-AIO/")
 
     trainset = StarIRTrainDataset(opt)
-    checkpoint_callback = ModelCheckpoint(dirpath = opt.ckpt_dir,every_n_epochs = 1,save_top_k=-1)
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=opt.ckpt_dir,
+        every_n_epochs=opt.save_every_n_epochs,
+        save_top_k=-1,
+        filename="epoch_{epoch:03d}"
+    )
+    best_checkpoint_callback = ModelCheckpoint(
+        dirpath=opt.ckpt_dir,
+        monitor=opt.monitor_metric,
+        mode="max",
+        save_top_k=1,
+        filename="best"
+    )
     trainloader = DataLoader(trainset, batch_size=opt.batch_size, pin_memory=True, shuffle=True,
                              drop_last=True, num_workers=opt.num_workers)
     
-    model = StarIRModel(opt, eval_interval=10)
-    trainer = pl.Trainer(max_epochs=opt.epochs,accelerator="gpu",devices=opt.num_gpus,strategy="ddp_find_unused_parameters_true",logger=logger,callbacks=[checkpoint_callback])
+    model = StarIRModel(opt, eval_interval=opt.eval_interval)
+    trainer = pl.Trainer(max_epochs=opt.epochs,accelerator="gpu",devices=opt.num_gpus,strategy="ddp_find_unused_parameters_true",logger=logger,callbacks=[checkpoint_callback, best_checkpoint_callback])
     # trainer = pl.Trainer(max_epochs=opt.epochs,accelerator="gpu",devices=opt.num_gpus,strategy="ddp_find_unused_parameters_true",logger=logger,callbacks=[checkpoint_callback], limit_train_batches=0.001)
 
     trainer.fit(model=model, train_dataloaders=trainloader)
