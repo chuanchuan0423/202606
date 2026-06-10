@@ -10,14 +10,13 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 from utils.dataset_utils import StarIRTrainDataset
-from utils.dataset_utils import DenoiseTestDataset, DerainDehazeDataset
+from utils.dataset_utils import DerainDehazeDataset
 from utils.val_utils import AverageMeter, compute_psnr_ssim
 from net.model import StarIR
 from utils.schedulers import LinearWarmupCosineAnnealingLR
 import numpy as np
-# import wandb
 import lightning.pytorch as pl
-from lightning.pytorch.loggers import WandbLogger,TensorBoardLogger
+from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 import random
 
@@ -67,11 +66,10 @@ class StarIRModel(pl.LightningModule):
     
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.parameters(), lr=2e-4)
-        scheduler = LinearWarmupCosineAnnealingLR(optimizer=optimizer, warmup_epochs=15, max_epochs=180) # 150/180
+        scheduler = LinearWarmupCosineAnnealingLR(optimizer=optimizer, warmup_epochs=15, max_epochs=180)
 
         return [optimizer],[scheduler]
     
-    # start evaluation
     def on_train_epoch_end(self, unused=None):
         if (self.current_epoch + 1) % self.eval_interval == 0:
             self.test_all()
@@ -80,13 +78,6 @@ class StarIRModel(pl.LightningModule):
         self.test_mode_3()
 
     def test_mode_3(self):
-        for testset in self.denoise_tests:
-            if 'denoise_15' in self.opt.de_type:
-                self.test_Denoise(testset, sigma=15)
-            if 'denoise_25' in self.opt.de_type:
-                self.test_Denoise(testset, sigma=25)
-            if 'denoise_50' in self.opt.de_type:
-                self.test_Denoise(testset, sigma=50)
         if 'derain' in self.opt.de_type:
             self.test_Derain_Dehaze(self.derain_set, task="derain")
         if 'enhance' in self.opt.de_type:
@@ -97,64 +88,29 @@ class StarIRModel(pl.LightningModule):
             self.test_Derain_Dehaze(self.deblur_set, task="deblur")
         
     def eval_datasets(self):
-        self.denoise_tests = []
-        self.derain_tests = []
-        self.dehaze_tests = []
-        
-        denoise_splits = ["bsd68/"]
-        denoise_base_path = self.opt.denoise_path
-        for i in denoise_splits:
-            self.opt.denoise_path = os.path.join(denoise_base_path, i)
-            denoise_testset = DenoiseTestDataset(self.opt)
-            self.denoise_tests.append(denoise_testset)
-            
-        # derain
-        derain_splits = ["Rain100L/"]
-        derain_base_path = self.opt.derain_path
-        for name in derain_splits:
-            self.opt.derain_path = os.path.join(derain_base_path, name)
-            self.derain_set = DerainDehazeDataset(self.opt,addnoise=False, sigma=15)
-        
+        if 'derain' in self.opt.de_type:
+            derain_splits = ["Rain100L/"]
+            derain_base_path = self.opt.derain_path
+            for name in derain_splits:
+                self.opt.derain_path = os.path.join(derain_base_path, name)
+                self.derain_set = DerainDehazeDataset(self.opt, addnoise=False, sigma=15)
 
-        self.opt.dehaze_path = self.opt.dehaze_path
-        self.dehaze_set = DerainDehazeDataset(self.opt,addnoise=False,sigma=15)
+        if 'dehaze' in self.opt.de_type:
+            self.dehaze_set = DerainDehazeDataset(self.opt, addnoise=False, sigma=15)
 
-        deblur_splits = ["gopro/"]
-        deblur_base_path = self.opt.gopro_path
-        for name in deblur_splits:
+        if 'deblur' in self.opt.de_type:
+            deblur_splits = ["gopro/"]
+            deblur_base_path = self.opt.gopro_path
+            for name in deblur_splits:
+                self.opt.gopro_path = os.path.join(deblur_base_path, name)
+                self.deblur_set = DerainDehazeDataset(self.opt, addnoise=False, sigma=15)
 
-            self.opt.gopro_path = os.path.join(deblur_base_path,name)
-            self.deblur_set = DerainDehazeDataset(self.opt,addnoise=False,sigma=15)
-
-        enhance_splits = ["lol/"]
-        enhance_base_path = self.opt.enhance_path
-        for name in enhance_splits:
-
-            self.opt.enhance_path = os.path.join(enhance_base_path,name)
-            self.enhance_set = DerainDehazeDataset(self.opt,addnoise=False,sigma=15)
-
-
-
-    def test_Denoise(self, dataset, sigma=15):
-        dataset.set_sigma(sigma)
-        testloader = DataLoader(dataset, batch_size=1, pin_memory=True, shuffle=False, num_workers=0)
-
-        psnr = AverageMeter()
-        ssim = AverageMeter()
-
-        with torch.no_grad():
-            for ([clean_name], degrad_patch, clean_patch) in tqdm(testloader):
-                degrad_patch, clean_patch = degrad_patch.cuda(), clean_patch.cuda()
-
-                restored = self.forward(degrad_patch)
-                temp_psnr, temp_ssim, N = compute_psnr_ssim(restored, clean_patch)
-
-                psnr.update(temp_psnr, N)
-                ssim.update(temp_ssim, N)
-
-            print("Denoise sigma=%d: psnr: %.2f, ssim: %.4f" % (sigma, psnr.avg, ssim.avg))
-            self.log("psnr %d"% (sigma), psnr.avg)
-            self.log("SSIM %d"% (sigma), ssim.avg)
+        if 'enhance' in self.opt.de_type:
+            enhance_splits = ["lol/"]
+            enhance_base_path = self.opt.enhance_path
+            for name in enhance_splits:
+                self.opt.enhance_path = os.path.join(enhance_base_path, name)
+                self.enhance_set = DerainDehazeDataset(self.opt, addnoise=False, sigma=15)
 
     def test_Derain_Dehaze(self, dataset, task="derain"):
         dataset.set_dataset(task)
@@ -185,59 +141,72 @@ def main():
 
     parser = argparse.ArgumentParser()
 
-    # parser.add_argument('--cuda', type=int, default=0)
-    parser.add_argument('--denoise_path', type=str, default="data/test/denoise/", help='save path of test noisy images')
     parser.add_argument('--derain_path', type=str, default="data/test/derain/", help='save path of test raining images')
     parser.add_argument('--dehaze_path', type=str, default="data/test/dehaze/", help='save path of test hazy images')
     parser.add_argument('--gopro_path', type=str, default="data/test/deblur/", help='save path of test blurry images')
     parser.add_argument('--enhance_path', type=str, default="data/test/enhance/", help='save path of test low light images')
 
     parser.add_argument('--epochs', type=int, default=150, help='maximum number of epochs to train the total model.')
-    parser.add_argument('--batch_size', type=int,default=16,help="Batch size to use per GPU")
+    parser.add_argument('--batch_size', type=int, default=8, help="Batch size to use per GPU")
     parser.add_argument('--lr', type=float, default=2e-4, help='learning rate of encoder.')
 
-    parser.add_argument('--de_type', nargs='+', default=['denoise_15', 'denoise_25', 'denoise_50', 'derain', 'dehaze', 'deblur', 'enhance'],
+    parser.add_argument('--de_type', nargs='+', default=['derain'],
                         help='which type of degradations is training and testing for.')
 
     parser.add_argument('--patch_size', type=int, default=128, help='patchsize of input.')
     parser.add_argument('--num_workers', type=int, default=16, help='number of workers.')
 
     # path
-    parser.add_argument('--data_file_dir', type=str, default='data_dir/',  help='where clean images of denoising saves.')
-    parser.add_argument('--denoise_dir', type=str, default='data/Train/Denoise/',
-                        help='where clean images of denoising saves.')
-    parser.add_argument('--gopro_dir', type=str, default='data/Train/Deblur/',
-                        help='where clean images of denoising saves.')
-    parser.add_argument('--enhance_dir', type=str, default='data/Train/Enhance/',
-                        help='where clean images of denoising saves.')
+    parser.add_argument('--data_file_dir', type=str, default='data_dir/', help='where index txt files save.')
     parser.add_argument('--derain_dir', type=str, default='data/Train/Derain/',
                         help='where training images of deraining saves.')
     parser.add_argument('--dehaze_dir', type=str, default='data/Train/Dehaze/',
                         help='where training images of dehazing saves.')
+    parser.add_argument('--gopro_dir', type=str, default='data/Train/Deblur/',
+                        help='where training images of deblurring saves.')
+    parser.add_argument('--enhance_dir', type=str, default='data/Train/Enhance/',
+                        help='where training images of enhancement saves.')
+    parser.add_argument('--denoise_dir', type=str, default='data/Train/Denoise/',
+                        help='where training images of denoising saves.')
     parser.add_argument('--output_path', type=str, default="output/", help='output save path')
     parser.add_argument('--ckpt_path', type=str, default="ckpt/Denoise/", help='checkpoint save path')
-    parser.add_argument("--wblogger",type=str,default="StarIR-AIO",help = "Determine to log to wandb or not and the project name")
-    parser.add_argument("--ckpt_dir",type=str,default="StarIR-AIO",help = "Name of the Directory where the checkpoint is to be saved")
-    parser.add_argument("--num_gpus",type=int,default= 2, help = "Number of GPUs to use for training")
+    parser.add_argument("--ckpt_dir", type=str, default="StarIR-Derain", help="Name of the Directory where the checkpoint is to be saved")
+    parser.add_argument("--num_gpus", type=int, default=1, help="Number of GPUs to use for training")
+    parser.add_argument("--save_every_n_epochs", type=int, default=5, help="Save checkpoint every N epochs")
+    parser.add_argument("--eval_interval", type=int, default=5, help="Evaluate every N epochs")
+    parser.add_argument("--monitor_metric", type=str, default="psnr derain", help="Metric to monitor for best checkpoint")
 
     opt = parser.parse_args()
 
-    path = opt.ckpt_dir+'_model'
+    path = opt.ckpt_dir + '_model'
     if not os.path.exists(path):
         os.makedirs(path)
-    command = 'cp '+'net/model.py ' + path
+    command = 'cp ' + 'net/model.py ' + path
     os.system(command)
 
-    logger = TensorBoardLogger(save_dir = "StarIR-AIO/")
+    logger = CSVLogger(save_dir="StarIR-Derain/")
 
     trainset = StarIRTrainDataset(opt)
-    checkpoint_callback = ModelCheckpoint(dirpath = opt.ckpt_dir,every_n_epochs = 1,save_top_k=-1)
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=opt.ckpt_dir,
+        every_n_epochs=opt.save_every_n_epochs,
+        save_top_k=-1,
+        filename="epoch_{epoch:03d}"
+    )
+    best_checkpoint_callback = ModelCheckpoint(
+        dirpath=opt.ckpt_dir,
+        monitor=opt.monitor_metric,
+        mode="max",
+        save_top_k=1,
+        filename="best"
+    )
     trainloader = DataLoader(trainset, batch_size=opt.batch_size, pin_memory=True, shuffle=True,
                              drop_last=True, num_workers=opt.num_workers)
-    
-    model = StarIRModel(opt, eval_interval=10)
-    trainer = pl.Trainer(max_epochs=opt.epochs,accelerator="gpu",devices=opt.num_gpus,strategy="ddp_find_unused_parameters_true",logger=logger,callbacks=[checkpoint_callback])
-    # trainer = pl.Trainer(max_epochs=opt.epochs,accelerator="gpu",devices=opt.num_gpus,strategy="ddp_find_unused_parameters_true",logger=logger,callbacks=[checkpoint_callback], limit_train_batches=0.001)
+
+    model = StarIRModel(opt, eval_interval=opt.eval_interval)
+    trainer = pl.Trainer(max_epochs=opt.epochs, accelerator="gpu", devices=opt.num_gpus,
+                         strategy="ddp_find_unused_parameters_true", logger=logger,
+                         callbacks=[checkpoint_callback, best_checkpoint_callback])
 
     trainer.fit(model=model, train_dataloaders=trainloader)
 
