@@ -1,0 +1,85 @@
+# Python runtime files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.env
+.env.*
+.venv/
+env/
+venv/
+ENV/
+conda-meta/
+
+# IDE and notebook cache
+.idea/
+.vscode/
+.DS_Store
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# Test, lint, and type-check cache
+.cache/
+.pytest_cache/
+.mypy_cache/
+.pyre/
+.pytype/
+.coverage
+.coverage.*
+htmlcov/
+
+# Build and packaging artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+MANIFEST
+
+# Logs
+*.log
+logs/
+lightning_logs/
+
+# AdaIR datasets
+data/
+
+# Model weights and checkpoints
+ckpt/
+*.ckpt
+*.pth
+*.pt
+*.pkl
+*.onnx
+
+# Training, evaluation, and visualization outputs
+experiments/
+results/
+output/
+outputs/
+wandb/
+runs/
+tensorboard/
+tb_logs/
+
+# Temporary extracted files
+tmp/
+temp/
+*_tmp/
+data/_tmp_*/
+
+# Archives and downloaded packages
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# Large image/video artifacts generated during experiments
+*.mp4
+*.avi
+*.mov
+*.gif
